@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   output: "standalone", // produces a minimal server bundle for Docker
   eslint: {
     ignoreDuringBuilds: false,
