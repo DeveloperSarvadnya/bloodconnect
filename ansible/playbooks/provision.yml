@@ -1,0 +1,106 @@
+---
+# ============================================================
+# provision.yml
+# Idempotent host setup: installs Docker + firewall rules on a
+# freshly Terraform-provisioned EC2 instance so it's ready to
+# receive application containers.
+# ============================================================
+- name: Provision app server
+  hosts: app_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    docker_users:
+      - ubuntu
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install prerequisite packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - ufw
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker apt repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker Engine
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker service is enabled and running
+      systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add deploy user(s) to docker group
+      user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop: "{{ docker_users }}"
+
+    - name: Configure UFW — allow SSH
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Configure UFW — allow app port
+      ufw:
+        rule: allow
+        port: "3000"
+        proto: tcp
+
+    - name: Configure UFW — allow HTTP
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+
+    - name: Configure UFW — allow monitoring ports (Prometheus/Grafana/SonarQube)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "9090"
+        - "3001"
+        - "9000"
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+        policy: deny
+
+    - name: Create app directory
+      file:
+        path: /opt/bloodconnect
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"

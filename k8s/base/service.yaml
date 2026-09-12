@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bloodconnect-service
+  labels:
+    app: bloodconnect
+spec:
+  type: NodePort
+  selector:
+    app: bloodconnect
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30080 # fixed so Jenkins health checks and OWASP ZAP always know where to look

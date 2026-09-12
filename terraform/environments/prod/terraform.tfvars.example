@@ -1,0 +1,5 @@
+aws_region       = "ap-south-1"
+instance_type    = "t3.small"      # slightly larger for prod; still cheap, adjust as needed
+ami_id           = "ami-0f5ee92e2d63afc18"
+key_pair_name    = "bloodconnect-prod-key"
+ssh_allowed_cidr = "203.0.113.0/24"  # restrict SSH to a known IP range in real prod use

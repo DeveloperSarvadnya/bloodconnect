@@ -1,0 +1,12 @@
+node_modules
+.next
+.env.local
+.env
+*.log
+.terraform
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+ansible/inventories/**/vault.yml
+ansible/group_vars/*.yml
+!ansible/group_vars/*.example

@@ -1,0 +1,83 @@
+{
+  "title": "BloodConnect — App & Infra Overview",
+  "uid": "bloodconnect-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP Requests / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(bloodconnect_http_requests_total[1m])) by (route)",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Request Duration (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(bloodconnect_http_request_duration_seconds_bucket[5m])) by (le, route))",
+          "legendFormat": "{{route}} p95"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Blood Requests Created — by Urgency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(bloodconnect_blood_requests_created_total[5m])) by (urgency)",
+          "legendFormat": "{{urgency}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Blood Requests Created — by Blood Group",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(bloodconnect_blood_requests_created_total) by (blood_group)",
+          "legendFormat": "{{blood_group}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Process Memory (RSS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=\"bloodconnect_app\"}",
+          "legendFormat": "RSS bytes"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "App Up/Down",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "up{job=\"bloodconnect_app\"}",
+          "legendFormat": "up"
+        }
+      ]
+    }
+  ]
+}

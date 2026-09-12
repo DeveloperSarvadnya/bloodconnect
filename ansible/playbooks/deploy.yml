@@ -1,0 +1,77 @@
+---
+# ============================================================
+# deploy.yml  [LEGACY — superseded by k8s_deploy.yml]
+#
+# This was the original deployment path: run the app as a single
+# standalone Docker container, no orchestration. The Jenkinsfile now
+# deploys through k3s instead (k8s_provision.yml + k8s_deploy.yml),
+# which adds self-healing, replica counts per environment, and
+# CPU-based autoscaling that this plain-Docker approach can't do.
+#
+# Left in place as a reference / fallback — e.g. for a quick local
+# demo where spinning up k3s is unnecessary overhead.
+#
+# Pulls the given Docker image tag and (re)starts the container.
+# Called with --extra-vars "image_tag=<n> docker_image=<repo>"
+# Re-running with a previous image_tag performs a rollback.
+# ============================================================
+- name: Deploy BloodConnect container
+  hosts: app_servers
+  become: true
+
+  vars:
+    container_name: bloodconnect
+    app_port: 3000
+
+  tasks:
+    - name: Fail early if required vars are missing
+      assert:
+        that:
+          - image_tag is defined
+          - docker_image is defined
+        fail_msg: "image_tag and docker_image must be passed via --extra-vars"
+
+    - name: Log in to Docker Hub
+      community.docker.docker_login:
+        username: "{{ dockerhub_username }}"
+        password: "{{ dockerhub_password }}"
+      when: dockerhub_username is defined
+      no_log: true
+
+    - name: Pull requested image tag
+      community.docker.docker_image:
+        name: "{{ docker_image }}:{{ image_tag }}"
+        source: pull
+        force_source: true
+
+    - name: Stop and remove existing container (if any)
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Run new container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image }}:{{ image_tag }}"
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "{{ app_port }}:3000"
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: "{{ supabase_url }}"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "{{ supabase_anon_key }}"
+
+    - name: Wait for app to respond on health endpoint
+      uri:
+        url: "http://localhost:{{ app_port }}/api/health"
+        status_code: 200
+      register: health_result
+      retries: 10
+      delay: 5
+      until: health_result.status == 200
+
+    - name: Record deployed tag for rollback reference
+      copy:
+        content: "{{ image_tag }}"
+        dest: /opt/bloodconnect/current_tag.txt

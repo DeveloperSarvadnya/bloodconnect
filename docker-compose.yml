@@ -1,0 +1,88 @@
+version: "3.9"
+
+services:
+  bloodconnect:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    image: bloodconnect:local
+    container_name: bloodconnect
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - bloodconnect-net
+
+  # ------------------------------------------------------------
+  # Monitoring stack: Prometheus scrapes /api/metrics, Grafana visualizes it
+  # ------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: bloodconnect-prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - bloodconnect
+    networks:
+      - bloodconnect-net
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: bloodconnect-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin   # change this after first login
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"   # host 3001 -> container 3000 (app already uses host 3000)
+    depends_on:
+      - prometheus
+    networks:
+      - bloodconnect-net
+
+  # ------------------------------------------------------------
+  # Code quality: SonarQube server (used by Jenkins' sonar-scanner stage,
+  # and can be run standalone here for local scans during development)
+  # ------------------------------------------------------------
+  sonarqube:
+    image: sonarqube:10.6-community
+    container_name: bloodconnect-sonarqube
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    volumes:
+      - sonarqube-data:/opt/sonarqube/data
+      - sonarqube-extensions:/opt/sonarqube/extensions
+      - sonarqube-logs:/opt/sonarqube/logs
+    ports:
+      - "9000:9000"
+    networks:
+      - bloodconnect-net
+
+networks:
+  bloodconnect-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  sonarqube-data:
+  sonarqube-extensions:
+  sonarqube-logs:

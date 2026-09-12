@@ -1,0 +1,67 @@
+---
+# ============================================================
+# k8s_provision.yml
+# Installs k3s — a lightweight, CNCF-conformant Kubernetes
+# distribution — on the EC2 host Terraform already created.
+#
+# Why k3s instead of AWS EKS: EKS's control plane costs ~$0.10/hr
+# (~$73/month) regardless of Free Tier eligibility. k3s gives the
+# same Kubernetes API, kubectl, and manifests on the same free-tier
+# EC2 instance already provisioned — real Kubernetes, no separate
+# control-plane bill. Swapping to EKS later only means pointing
+# kubectl at a different cluster; none of the manifests change.
+#
+# Idempotent: safe to re-run against an already-provisioned host.
+# ============================================================
+- name: Install k3s on app server
+  hosts: app_servers
+  become: true
+
+  tasks:
+    - name: Check if k3s is already installed
+      stat:
+        path: /usr/local/bin/k3s
+      register: k3s_binary
+
+    - name: Install rsync (needed by the synchronize module in k8s_deploy.yml)
+      apt:
+        name: rsync
+        state: present
+
+    - name: Install k3s (single-node cluster, Traefik ingress disabled — we use NodePort)
+      shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_EXEC="--disable traefik --write-kubeconfig-mode 644" sh -
+      when: not k3s_binary.stat.exists
+      register: k3s_install
+
+    - name: Wait for k3s node to be Ready
+      shell: k3s kubectl get nodes --no-headers | awk '{print $2}'
+      register: node_status
+      until: node_status.stdout == "Ready"
+      retries: 15
+      delay: 5
+      changed_when: false
+
+    - name: Configure UFW — allow app NodePort
+      ufw:
+        rule: allow
+        port: "30080"
+        proto: tcp
+
+    - name: Ensure app directory exists for manifest sync
+      file:
+        path: /opt/bloodconnect/k8s
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Report k3s version
+      command: k3s --version
+      register: k3s_version
+      changed_when: false
+
+    - name: Show k3s version
+      debug:
+        msg: "{{ k3s_version.stdout_lines }}"

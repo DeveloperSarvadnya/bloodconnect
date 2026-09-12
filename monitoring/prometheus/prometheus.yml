@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Scrapes the BloodConnect app's own /api/metrics endpoint.
+  # "bloodconnect" here is the docker-compose service name — Docker's internal
+  # DNS resolves it to the container's IP automatically.
+  - job_name: "bloodconnect_app"
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["bloodconnect:3000"]
+        labels:
+          environment: "local"
+
+  # Prometheus scraping itself — useful sanity check target
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

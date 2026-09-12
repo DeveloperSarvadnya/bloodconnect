@@ -1,0 +1,79 @@
+---
+# ============================================================
+# k8s_deploy.yml
+# Syncs the k8s/ manifests to the host, creates the environment's
+# Secret from Ansible vars (never checked into git), applies the
+# right kustomize overlay, sets the real image tag, and waits for
+# a healthy rollout before Jenkins considers the deploy successful.
+#
+# Called by Jenkins with:
+#   --extra-vars "image_tag=<n> docker_image=<repo> deploy_env=dev"
+# ============================================================
+- name: Deploy BloodConnect to k3s
+  hosts: app_servers
+  become: true
+
+  vars:
+    namespace: "bloodconnect-{{ deploy_env }}"
+
+  tasks:
+    - name: Fail early if required vars are missing
+      assert:
+        that:
+          - image_tag is defined
+          - docker_image is defined
+          - deploy_env is defined
+        fail_msg: "image_tag, docker_image, and deploy_env must be passed via --extra-vars"
+
+    - name: Sync k8s manifests to the host
+      synchronize:
+        src: "{{ playbook_dir }}/../../k8s/"
+        dest: /opt/bloodconnect/k8s/
+        delete: true
+
+    - name: Ensure target namespace exists
+      shell: >
+        k3s kubectl get namespace {{ namespace }} ||
+        k3s kubectl create namespace {{ namespace }}
+      changed_when: false
+
+    - name: Create/update the Supabase secret for this environment
+      shell: |
+        k3s kubectl create secret generic bloodconnect-secrets \
+          --namespace={{ namespace }} \
+          --from-literal=NEXT_PUBLIC_SUPABASE_ANON_KEY="{{ supabase_anon_key }}" \
+          --dry-run=client -o yaml | k3s kubectl apply -f -
+      no_log: true # keeps the anon key out of Jenkins console output
+
+    - name: Apply the kustomize overlay for this environment
+      command: k3s kubectl apply -k /opt/bloodconnect/k8s/overlays/{{ deploy_env }}
+
+    - name: Set the real image tag built by this pipeline run
+      command: >
+        k3s kubectl set image deployment/bloodconnect-app
+        bloodconnect={{ docker_image }}:{{ image_tag }}
+        --namespace={{ namespace }}
+
+    - name: Wait for the rollout to finish
+      command: >
+        k3s kubectl rollout status deployment/bloodconnect-app
+        --namespace={{ namespace }} --timeout=180s
+      register: rollout
+
+    - name: Show rollout result
+      debug:
+        msg: "{{ rollout.stdout }}"
+
+    - name: Verify the app responds on its NodePort
+      uri:
+        url: "http://localhost:30080/api/health"
+        status_code: 200
+      register: health_result
+      retries: 10
+      delay: 5
+      until: health_result.status == 200
+
+    - name: Record deployed tag for rollback reference
+      copy:
+        content: "{{ image_tag }}"
+        dest: "/opt/bloodconnect/current_tag_{{ deploy_env }}.txt"

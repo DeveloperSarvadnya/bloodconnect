@@ -1,0 +1,7 @@
+aws_region       = "ap-south-1"
+instance_type    = "t2.micro"      # AWS Free Tier eligible. k3s + 1 app replica fits in 1GB RAM,
+                                    # but it's tight — if the node struggles, bump to t3.small
+                                    # (still inexpensive, just outside the Free Tier hours).
+ami_id           = "ami-0f5ee92e2d63afc18"  # Ubuntu 22.04 LTS, ap-south-1 — verify current ID
+key_pair_name    = "bloodconnect-dev-key"
+ssh_allowed_cidr = "0.0.0.0/0"

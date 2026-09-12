@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bloodconnect-config
+data:
+  # Supabase URL is public by design (client-side), safe in a ConfigMap.
+  # Overridden per environment in k8s/overlays/<env>/configmap-patch.yaml.
+  NEXT_PUBLIC_SUPABASE_URL: "https://your-project.supabase.co"

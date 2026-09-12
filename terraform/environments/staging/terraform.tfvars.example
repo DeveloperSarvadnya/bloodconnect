@@ -1,0 +1,5 @@
+aws_region       = "ap-south-1"
+instance_type    = "t3.small"       # bumped from t2.micro — k3s + 2 app replicas needs more than 1GB RAM
+ami_id           = "ami-0f5ee92e2d63afc18"
+key_pair_name    = "bloodconnect-staging-key"
+ssh_allowed_cidr = "0.0.0.0/0"

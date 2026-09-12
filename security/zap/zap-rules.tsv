@@ -1,0 +1,20 @@
+# OWASP ZAP baseline scan rule configuration
+# Format: <rule id>	<threshold: IGNORE|WARN|FAIL>	<url regex (optional)>
+#
+# Full rule ID reference: https://www.zaproxy.org/docs/alerts/
+# Start permissive (WARN) while the app is new; tighten to FAIL as you fix findings.
+
+# Missing Anti-clickjacking Header — common on API-only routes, warn for now
+10020	WARN
+
+# Missing security headers (CSP, X-Content-Type-Options, etc.)
+# These are legitimate to fix — Next.js needs explicit header config for these
+10021	WARN
+10035	WARN
+
+# Cookie without Secure/HttpOnly flag — relevant since Supabase sets auth cookies
+10011	WARN
+10010	WARN
+
+# Server-side info leakage (e.g. framework version headers) — low severity, warn only
+10036	WARN

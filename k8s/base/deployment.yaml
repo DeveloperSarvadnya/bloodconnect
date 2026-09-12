@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bloodconnect-app
+  labels:
+    app: bloodconnect
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bloodconnect
+  template:
+    metadata:
+      labels:
+        app: bloodconnect
+    spec:
+      containers:
+        - name: bloodconnect
+          # Overridden at deploy time — see kustomization.yaml `images:` and
+          # ansible/playbooks/k8s_deploy.yml, which sets the real build tag.
+          image: yourdockerhubuser/bloodconnect:latest
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: bloodconnect-config
+            - secretRef:
+                name: bloodconnect-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
