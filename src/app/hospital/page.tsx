@@ -46,10 +46,10 @@ export default function HospitalDashboard() {
     }
     setSubmitting(true);
 
-    const { data, error } = await supabase
-      .from('blood_requests')
-      .insert({
-        hospital_id: profile.id,
+    const res = await fetch('/api/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         blood_group: form.bloodGroup,
         units_needed: form.units,
         urgency: form.urgency,
@@ -57,14 +57,16 @@ export default function HospitalDashboard() {
         latitude: profile.latitude,
         longitude: profile.longitude,
         address: profile.city,
-        status: 'open',
-      })
-      .select()
-      .single();
+      }),
+    });
 
     setSubmitting(false);
-    if (!error && data) {
-      setMyRequests((prev) => [data, ...prev]);
+    if (res.ok) {
+      const { request } = await res.json();
+      setMyRequests((prev) => [request, ...prev]);
+    } else {
+      const { error } = await res.json();
+      alert(`Failed to post request: ${error}`);
     }
   }
 
