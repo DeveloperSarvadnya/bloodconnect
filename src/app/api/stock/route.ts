@@ -1,17 +1,18 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { withMetrics } from '@/lib/withMetrics';
 
 // GET /api/stock — list all blood banks with current stock
-export async function GET() {
+export const GET = withMetrics('/api/stock', async () => {
   const supabase = createClient();
   const { data, error } = await supabase.from('blood_banks').select('*').order('name');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ blood_banks: data });
-}
+});
 
 // POST /api/stock — bulk upload blood banks (from CSV parsed client-side into JSON)
 // Expected body: { banks: [{ name, latitude, longitude, address, contact_number, stock }] }
-export async function POST(req: Request) {
+export const POST = withMetrics('/api/stock', async (req: Request) => {
   const supabase = createClient();
   const {
     data: { user },
@@ -39,4 +40,4 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ inserted: data.length, blood_banks: data }, { status: 201 });
-}
+});

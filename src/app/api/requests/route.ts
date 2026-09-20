@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { bloodRequestsCounter } from '@/lib/metrics';
+import { withMetrics } from '@/lib/withMetrics';
 
 // GET /api/requests — list active blood requests (optionally filter by blood_group)
-export async function GET(req: Request) {
+export const GET = withMetrics('/api/requests', async (req: Request) => {
   const supabase = createClient();
   const { searchParams } = new URL(req.url);
   const bloodGroup = searchParams.get('blood_group');
@@ -21,10 +22,10 @@ export async function GET(req: Request) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ requests: data });
-}
+});
 
 // POST /api/requests — hospital/admin creates a new urgent blood request
-export async function POST(req: Request) {
+export const POST = withMetrics('/api/requests', async (req: Request) => {
   const supabase = createClient();
   const {
     data: { user },
@@ -76,4 +77,4 @@ export async function POST(req: Request) {
   bloodRequestsCounter.inc({ urgency: data.urgency, blood_group: data.blood_group });
 
   return NextResponse.json({ request: data }, { status: 201 });
-}
+});

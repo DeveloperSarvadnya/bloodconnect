@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { distanceKm } from '@/lib/geo';
 import { COMPATIBLE_DONORS, type BloodGroup } from '@/types';
+import { withMetrics } from '@/lib/withMetrics';
 
 /**
  * GET /api/donors/match?request_id=...&radius_km=15
@@ -10,7 +11,7 @@ import { COMPATIBLE_DONORS, type BloodGroup } from '@/types';
  * requested blood group, sorted by distance from the request location.
  * This is the core "matching engine" of the platform.
  */
-export async function GET(req: Request) {
+export const GET = withMetrics('/api/donors/match', async (req: Request) => {
   const supabase = createClient();
   const { searchParams } = new URL(req.url);
   const requestId = searchParams.get('request_id');
@@ -52,4 +53,4 @@ export async function GET(req: Request) {
     .sort((a, b) => a.distance_km - b.distance_km);
 
   return NextResponse.json({ matched_donors: matched, count: matched.length });
-}
+});
