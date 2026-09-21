@@ -137,6 +137,17 @@ export default function DonorDashboard() {
                 {pledged.has(r.id) ? 'Pledged' : 'Pledge to donate'}
               </button>
             </div>
+
+            {pledged.has(r.id) && (
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 flex items-center gap-1.5 text-sm font-medium text-red-700 hover:underline"
+              >
+                Get directions to {r.hospital?.organization_name ?? r.hospital?.full_name ?? 'hospital'} →
+              </a>
+            )}
           </div>
         ))}
       </div>
