@@ -15,6 +15,7 @@ export default function DonorDashboard() {
   const [emptyReason, setEmptyReason] = useState<EmptyReason>(null);
   const [loadingRequests, setLoadingRequests] = useState(true);
   const [pledged, setPledged] = useState<Set<string>>(new Set());
+  const [pledgeBusyFor, setPledgeBusyFor] = useState<string | null>(null);
 
   async function loadNearbyRequests() {
     setLoadingRequests(true);
@@ -25,6 +26,17 @@ export default function DonorDashboard() {
       setEmptyReason(reason ?? null);
     }
     setLoadingRequests(false);
+  }
+
+  async function loadMyPledges(donorId: string) {
+    const { data: myResponses } = await supabase
+      .from('donation_responses')
+      .select('request_id')
+      .eq('donor_id', donorId)
+      .eq('status', 'pledged');
+    if (myResponses) {
+      setPledged(new Set(myResponses.map((r) => r.request_id)));
+    }
   }
 
   useEffect(() => {
@@ -38,16 +50,9 @@ export default function DonorDashboard() {
       setProfile(p);
 
       await loadNearbyRequests();
-
       // Reflect already-pledged requests correctly on refresh/re-login,
       // instead of only tracking pledges made during this browser session.
-      const { data: myResponses } = await supabase
-        .from('donation_responses')
-        .select('request_id')
-        .eq('donor_id', user.id);
-      if (myResponses) {
-        setPledged(new Set(myResponses.map((r) => r.request_id)));
-      }
+      await loadMyPledges(user.id);
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,10 +67,36 @@ export default function DonorDashboard() {
 
   async function pledge(requestId: string) {
     if (!profile) return;
+    setPledgeBusyFor(requestId);
     const { error } = await supabase
       .from('donation_responses')
       .insert({ request_id: requestId, donor_id: profile.id, status: 'pledged' });
+    setPledgeBusyFor(null);
     if (!error) setPledged((prev) => new Set(prev).add(requestId));
+  }
+
+  async function withdrawPledge(requestId: string) {
+    if (!profile) return;
+    if (!confirm('Withdraw your pledge for this request? The hospital will be notified.')) {
+      return;
+    }
+    setPledgeBusyFor(requestId);
+    const { error } = await supabase
+      .from('donation_responses')
+      .update({ status: 'cancelled' })
+      .eq('donor_id', profile.id)
+      .eq('request_id', requestId)
+      .eq('status', 'pledged');
+    setPledgeBusyFor(null);
+    if (!error) {
+      setPledged((prev) => {
+        const next = new Set(prev);
+        next.delete(requestId);
+        return next;
+      });
+    } else {
+      alert(`Failed to withdraw pledge: ${error.message}`);
+    }
   }
 
   if (!profile) return <main className="p-6">Loading…</main>;
@@ -114,42 +145,57 @@ export default function DonorDashboard() {
       )}
 
       <div className="space-y-3">
-        {nearbyRequests.map((r) => (
-          <div key={r.id} className="rounded-lg border bg-white p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">
-                  {r.blood_group} needed · {r.units_needed} units
-                </p>
-                <p className="text-sm text-neutral-600">
-                  {r.hospital?.organization_name ?? r.hospital?.full_name ?? 'Hospital'}
-                  {r.hospital?.city ? ` · ${r.hospital.city}` : ''}
-                </p>
-                <p className="text-sm text-neutral-500">
-                  {r.distance_km.toFixed(1)} km away · urgency: {r.urgency}
-                </p>
-              </div>
-              <button
-                onClick={() => pledge(r.id)}
-                disabled={pledged.has(r.id)}
-                className="rounded-md bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-800 disabled:opacity-50"
-              >
-                {pledged.has(r.id) ? 'Pledged' : 'Pledge to donate'}
-              </button>
-            </div>
+        {nearbyRequests.map((r) => {
+          const isPledged = pledged.has(r.id);
+          const isBusy = pledgeBusyFor === r.id;
+          return (
+            <div key={r.id} className="rounded-lg border bg-white p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">
+                    {r.blood_group} needed · {r.units_needed} units
+                  </p>
+                  <p className="text-sm text-neutral-600">
+                    {r.hospital?.organization_name ?? r.hospital?.full_name ?? 'Hospital'}
+                    {r.hospital?.city ? ` · ${r.hospital.city}` : ''}
+                  </p>
+                  <p className="text-sm text-neutral-500">
+                    {r.distance_km.toFixed(1)} km away · urgency: {r.urgency}
+                  </p>
+                </div>
 
-            {pledged.has(r.id) && (
-              <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 flex items-center gap-1.5 text-sm font-medium text-red-700 hover:underline"
-              >
-                Get directions to {r.hospital?.organization_name ?? r.hospital?.full_name ?? 'hospital'} →
-              </a>
-            )}
-          </div>
-        ))}
+                {isPledged ? (
+                  <button
+                    onClick={() => withdrawPledge(r.id)}
+                    disabled={isBusy}
+                    className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {isBusy ? 'Withdrawing…' : 'Withdraw pledge'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => pledge(r.id)}
+                    disabled={isBusy}
+                    className="rounded-md bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-800 disabled:opacity-50"
+                  >
+                    {isBusy ? 'Pledging…' : 'Pledge to donate'}
+                  </button>
+                )}
+              </div>
+
+              {isPledged && (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 flex items-center gap-1.5 text-sm font-medium text-red-700 hover:underline"
+                >
+                  Get directions to {r.hospital?.organization_name ?? r.hospital?.full_name ?? 'hospital'} →
+                </a>
+              )}
+            </div>
+          );
+        })}
       </div>
     </main>
   );

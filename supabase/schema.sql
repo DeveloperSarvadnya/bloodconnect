@@ -150,6 +150,9 @@ create policy "responses_select_related" on donation_responses for select
   );
 create policy "responses_insert_donor" on donation_responses for insert
   with check (donor_id = auth.uid());
+create policy "responses_update_own_donor" on donation_responses for update
+  using (donor_id = auth.uid())
+  with check (donor_id = auth.uid());
 
 -- Blood banks & camps: public read, admin/hospital write
 create policy "banks_select_all" on blood_banks for select using (true);

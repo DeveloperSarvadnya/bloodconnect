@@ -19,6 +19,7 @@ interface MatchedDonor {
 interface Toast {
   id: string;
   message: string;
+  tone: 'positive' | 'neutral';
 }
 
 export default function HospitalDashboard() {
@@ -40,13 +41,22 @@ export default function HospitalDashboard() {
 
   const [expandedPledgesFor, setExpandedPledgesFor] = useState<string | null>(null);
   const [pledges, setPledges] = useState<Record<string, DonationResponseWithDonor[]>>({});
+  // Live pledge counts, shown on every request card immediately — this is
+  // what actually solves "don't make me click into every request to see
+  // if anyone's pledged." Kept in sync by the realtime subscription below.
+  const [pledgeCounts, setPledgeCounts] = useState<Record<string, number>>({});
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const myRequestIdsRef = useRef<Set<string>>(new Set());
+  const expandedPledgesForRef = useRef<string | null>(null);
 
   useEffect(() => {
     myRequestIdsRef.current = new Set(myRequests.map((r) => r.id));
   }, [myRequests]);
+
+  useEffect(() => {
+    expandedPledgesForRef.current = expandedPledgesFor;
+  }, [expandedPledgesFor]);
 
   async function loadPledges(requestId: string) {
     const { data } = await supabase
@@ -55,6 +65,22 @@ export default function HospitalDashboard() {
       .eq('request_id', requestId)
       .order('created_at', { ascending: false });
     setPledges((prev) => ({ ...prev, [requestId]: (data as DonationResponseWithDonor[]) ?? [] }));
+  }
+
+  async function loadPledgeCounts(requestIds: string[]) {
+    if (requestIds.length === 0) return;
+    const { data } = await supabase
+      .from('donation_responses')
+      .select('request_id')
+      .in('request_id', requestIds)
+      .eq('status', 'pledged');
+    if (data) {
+      const counts: Record<string, number> = {};
+      for (const row of data) {
+        counts[row.request_id] = (counts[row.request_id] ?? 0) + 1;
+      }
+      setPledgeCounts(counts);
+    }
   }
 
   useEffect(() => {
@@ -72,40 +98,59 @@ export default function HospitalDashboard() {
         .eq('hospital_id', user.id)
         .order('created_at', { ascending: false });
       setMyRequests(requests ?? []);
+      await loadPledgeCounts((requests ?? []).map((r) => r.id));
     }
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase]);
 
-  // Live "notification" when a donor pledges to one of this hospital's
-  // requests — there's no email/SMS infrastructure in this project, so an
-  // in-app real-time alert (via the same Supabase Realtime channel the
-  // rest of the app uses) is the right-sized version of this for now.
+  // Live updates when a donor pledges — or withdraws a pledge — for one of
+  // this hospital's requests. There's no email/SMS infrastructure in this
+  // project, so an in-app real-time alert (the same Supabase Realtime
+  // pattern the rest of the app uses) is the right-sized version of this.
+  // Pledge counts on every card update from this too, without needing to
+  // click into a request to find out something changed.
   useEffect(() => {
     const channel = supabase
       .channel('hospital_pledges')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'donation_responses' },
+        { event: '*', schema: 'public', table: 'donation_responses' },
         async (payload) => {
-          const newResponse = payload.new as { id: string; request_id: string; donor_id: string };
-          if (!myRequestIdsRef.current.has(newResponse.request_id)) return;
+          const row = (payload.eventType === 'DELETE' ? payload.old : payload.new) as {
+            id: string;
+            request_id: string;
+            donor_id: string;
+            status: string;
+          };
+          if (!row?.request_id || !myRequestIdsRef.current.has(row.request_id)) return;
 
           const { data: donor } = await supabase
             .from('profiles')
             .select('full_name, blood_group')
-            .eq('id', newResponse.donor_id)
+            .eq('id', row.donor_id)
             .single();
+          const donorLabel = `${donor?.full_name ?? 'A donor'} (${donor?.blood_group ?? 'unknown group'})`;
 
-          setToasts((prev) => [
-            ...prev,
-            {
-              id: newResponse.id,
-              message: `${donor?.full_name ?? 'A donor'} (${donor?.blood_group ?? 'unknown group'}) pledged to donate for one of your requests.`,
-            },
-          ]);
+          if (payload.eventType === 'INSERT' && row.status === 'pledged') {
+            setPledgeCounts((prev) => ({ ...prev, [row.request_id]: (prev[row.request_id] ?? 0) + 1 }));
+            setToasts((prev) => [
+              ...prev,
+              { id: row.id, message: `${donorLabel} pledged to donate for one of your requests.`, tone: 'positive' },
+            ]);
+          } else if (payload.eventType === 'UPDATE' && row.status === 'cancelled') {
+            setPledgeCounts((prev) => ({
+              ...prev,
+              [row.request_id]: Math.max(0, (prev[row.request_id] ?? 1) - 1),
+            }));
+            setToasts((prev) => [
+              ...prev,
+              { id: `${row.id}-cancel`, message: `${donorLabel} withdrew their pledge.`, tone: 'neutral' },
+            ]);
+          }
 
-          if (expandedPledgesFor === newResponse.request_id) {
-            loadPledges(newResponse.request_id);
+          if (expandedPledgesForRef.current === row.request_id) {
+            loadPledges(row.request_id);
           }
         }
       )
@@ -115,7 +160,7 @@ export default function HospitalDashboard() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, expandedPledgesFor]);
+  }, [supabase]);
 
   function dismissToast(id: string) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -198,9 +243,7 @@ export default function HospitalDashboard() {
       return;
     }
     setExpandedPledgesFor(requestId);
-    if (!pledges[requestId]) {
-      await loadPledges(requestId);
-    }
+    await loadPledges(requestId); // always refresh on open, not just first time
   }
 
   if (!profile) return <main className="p-6">Loading…</main>;
@@ -209,18 +252,28 @@ export default function HospitalDashboard() {
 
   return (
     <main className="mx-auto max-w-2xl p-6">
-      {/* Toast notifications for new pledges */}
+      {/* Toast notifications for pledges and withdrawals */}
       {toasts.length > 0 && (
         <div className="fixed right-4 top-4 z-50 space-y-2">
           {toasts.map((t) => (
             <div
               key={t.id}
-              className="flex max-w-sm items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-3 shadow-md"
+              className={`flex max-w-sm items-start gap-3 rounded-lg border p-3 shadow-md ${
+                t.tone === 'positive'
+                  ? 'border-green-200 bg-green-50'
+                  : 'border-neutral-200 bg-neutral-50'
+              }`}
             >
-              <p className="flex-1 text-sm text-green-900">{t.message}</p>
+              <p
+                className={`flex-1 text-sm ${
+                  t.tone === 'positive' ? 'text-green-900' : 'text-neutral-700'
+                }`}
+              >
+                {t.message}
+              </p>
               <button
                 onClick={() => dismissToast(t.id)}
-                className="text-green-700 hover:text-green-900"
+                className={t.tone === 'positive' ? 'text-green-700 hover:text-green-900' : 'text-neutral-500 hover:text-neutral-700'}
                 aria-label="Dismiss"
               >
                 ×
@@ -284,86 +337,93 @@ export default function HospitalDashboard() {
 
       <h2 className="mb-3 font-semibold">Your requests</h2>
       <div className="space-y-3">
-        {myRequests.map((r) => (
-          <div key={r.id} className="rounded-lg border bg-white p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="font-medium">
-                  {r.blood_group} · {r.units_needed} units · {r.urgency}
-                </p>
-                <p className="text-sm text-neutral-500">
-                  Status: <span className="capitalize">{r.status}</span> · posted{' '}
-                  {new Date(r.created_at).toLocaleString()}
-                </p>
+        {myRequests.map((r) => {
+          const pledgeCount = pledges[r.id]?.length ?? pledgeCounts[r.id] ?? 0;
+          return (
+            <div key={r.id} className="rounded-lg border bg-white p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-medium">
+                    {r.blood_group} · {r.units_needed} units · {r.urgency}
+                    {pledgeCount > 0 && (
+                      <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                        {pledgeCount} pledge{pledgeCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-sm text-neutral-500">
+                    Status: <span className="capitalize">{r.status}</span> · posted{' '}
+                    {new Date(r.created_at).toLocaleString()}
+                  </p>
+                </div>
+                {activeStatuses.includes(r.status) && (
+                  <button
+                    onClick={() => withdrawRequest(r.id)}
+                    disabled={withdrawingId === r.id}
+                    className="rounded-md border border-neutral-300 px-3 py-1.5 text-xs text-neutral-600 hover:bg-neutral-100 disabled:opacity-50"
+                  >
+                    {withdrawingId === r.id ? 'Withdrawing…' : 'Withdraw'}
+                  </button>
+                )}
               </div>
-              {activeStatuses.includes(r.status) && (
-                <button
-                  onClick={() => withdrawRequest(r.id)}
-                  disabled={withdrawingId === r.id}
-                  className="rounded-md border border-neutral-300 px-3 py-1.5 text-xs text-neutral-600 hover:bg-neutral-100 disabled:opacity-50"
-                >
-                  {withdrawingId === r.id ? 'Withdrawing…' : 'Withdraw'}
+
+              <div className="mt-3 flex gap-4 text-sm">
+                <button onClick={() => togglePledges(r.id)} className="text-red-700 hover:underline">
+                  {expandedPledgesFor === r.id ? 'Hide pledges' : 'View pledges'}
+                  {pledgeCount > 0 ? ` (${pledgeCount})` : ''}
                 </button>
+                <button
+                  onClick={() => toggleMatchedDonors(r.id)}
+                  className="text-red-700 hover:underline"
+                >
+                  {expandedDonorsFor === r.id ? 'Hide nearby donors' : 'View nearby donors'}
+                  {matchedDonors[r.id] ? ` (${matchedDonors[r.id].length})` : ''}
+                </button>
+              </div>
+
+              {expandedPledgesFor === r.id && (
+                <div className="mt-3 space-y-2 border-t pt-3">
+                  {(pledges[r.id]?.length ?? 0) === 0 && (
+                    <p className="text-sm text-neutral-500">No active pledges right now.</p>
+                  )}
+                  {pledges[r.id]
+                    ?.filter((p) => p.status === 'pledged')
+                    .map((p) => (
+                      <div key={p.id} className="flex items-center justify-between text-sm">
+                        <span>
+                          {p.donor?.full_name ?? 'Unknown donor'} · {p.donor?.blood_group ?? '—'}
+                        </span>
+                        <span className="text-neutral-500">{p.donor?.phone}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {expandedDonorsFor === r.id && (
+                <div className="mt-3 space-y-2 border-t pt-3">
+                  {loadingDonorsFor === r.id && (
+                    <p className="text-sm text-neutral-500">Searching nearby donors…</p>
+                  )}
+                  {loadingDonorsFor !== r.id && (matchedDonors[r.id]?.length ?? 0) === 0 && (
+                    <p className="text-sm text-neutral-500">
+                      No compatible available donors within {DEFAULT_MATCH_RADIUS_KM} km.
+                    </p>
+                  )}
+                  {matchedDonors[r.id]?.map((d) => (
+                    <div key={d.id} className="flex items-center justify-between text-sm">
+                      <span>
+                        {d.full_name} · {d.blood_group}
+                      </span>
+                      <span className="text-neutral-500">
+                        {d.distance_km.toFixed(1)} km · {d.phone}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-
-            <div className="mt-3 flex gap-4 text-sm">
-              <button
-                onClick={() => togglePledges(r.id)}
-                className="text-red-700 hover:underline"
-              >
-                {expandedPledgesFor === r.id ? 'Hide pledges' : 'View pledges'}
-                {pledges[r.id] ? ` (${pledges[r.id].length})` : ''}
-              </button>
-              <button
-                onClick={() => toggleMatchedDonors(r.id)}
-                className="text-red-700 hover:underline"
-              >
-                {expandedDonorsFor === r.id ? 'Hide nearby donors' : 'View nearby donors'}
-                {matchedDonors[r.id] ? ` (${matchedDonors[r.id].length})` : ''}
-              </button>
-            </div>
-
-            {expandedPledgesFor === r.id && (
-              <div className="mt-3 space-y-2 border-t pt-3">
-                {(pledges[r.id]?.length ?? 0) === 0 && (
-                  <p className="text-sm text-neutral-500">No pledges yet.</p>
-                )}
-                {pledges[r.id]?.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between text-sm">
-                    <span>
-                      {p.donor?.full_name ?? 'Unknown donor'} · {p.donor?.blood_group ?? '—'}
-                    </span>
-                    <span className="text-neutral-500">{p.donor?.phone}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {expandedDonorsFor === r.id && (
-              <div className="mt-3 space-y-2 border-t pt-3">
-                {loadingDonorsFor === r.id && (
-                  <p className="text-sm text-neutral-500">Searching nearby donors…</p>
-                )}
-                {loadingDonorsFor !== r.id && (matchedDonors[r.id]?.length ?? 0) === 0 && (
-                  <p className="text-sm text-neutral-500">
-                    No compatible available donors within {DEFAULT_MATCH_RADIUS_KM} km.
-                  </p>
-                )}
-                {matchedDonors[r.id]?.map((d) => (
-                  <div key={d.id} className="flex items-center justify-between text-sm">
-                    <span>
-                      {d.full_name} · {d.blood_group}
-                    </span>
-                    <span className="text-neutral-500">
-                      {d.distance_km.toFixed(1)} km · {d.phone}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </main>
   );
