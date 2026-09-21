@@ -44,6 +44,8 @@ export default function BloodMap({
             <br />
             Urgency: {r.urgency}
             <br />
+            {r.hospital?.organization_name ?? r.hospital?.full_name ?? 'Requesting hospital'}
+            <br />
             {r.address ?? 'Location on map'}
           </Popup>
         </CircleMarker>

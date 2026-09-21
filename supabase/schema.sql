@@ -39,7 +39,7 @@ create table blood_requests (
   latitude double precision not null,
   longitude double precision not null,
   address text,
-  status text not null check (status in ('open','partially_fulfilled','fulfilled','expired')) default 'open',
+  status text not null check (status in ('open','partially_fulfilled','fulfilled','expired','cancelled')) default 'open',
   expires_at timestamptz,
   created_at timestamptz default now()
 );

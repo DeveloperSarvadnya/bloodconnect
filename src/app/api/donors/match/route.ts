@@ -3,9 +3,10 @@ import { createClient } from '@/lib/supabase/server';
 import { distanceKm } from '@/lib/geo';
 import { COMPATIBLE_DONORS, type BloodGroup } from '@/types';
 import { withMetrics } from '@/lib/withMetrics';
+import { DEFAULT_MATCH_RADIUS_KM } from '@/lib/constants';
 
 /**
- * GET /api/donors/match?request_id=...&radius_km=15
+ * GET /api/donors/match?request_id=...&radius_km=50
  *
  * Finds available donors whose blood group is compatible with the
  * requested blood group, sorted by distance from the request location.
@@ -15,7 +16,7 @@ export const GET = withMetrics('/api/donors/match', async (req: Request) => {
   const supabase = createClient();
   const { searchParams } = new URL(req.url);
   const requestId = searchParams.get('request_id');
-  const radiusKm = Number(searchParams.get('radius_km') ?? 15);
+  const radiusKm = Number(searchParams.get('radius_km') ?? DEFAULT_MATCH_RADIUS_KM);
 
   if (!requestId) {
     return NextResponse.json({ error: 'request_id is required' }, { status: 400 });

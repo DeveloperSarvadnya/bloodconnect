@@ -8,6 +8,8 @@ import type { BloodRequest, BloodBank, DonationCamp } from '@/types';
 // Leaflet touches `window`, so it must be loaded client-side only
 const BloodMap = dynamic(() => import('@/components/map/BloodMap'), { ssr: false });
 
+const REQUEST_SELECT = '*, hospital:profiles!hospital_id(organization_name, full_name, phone, city)';
+
 export default function MapPage() {
   const [requests, setRequests] = useState<BloodRequest[]>([]);
   const [bloodBanks, setBloodBanks] = useState<BloodBank[]>([]);
@@ -17,24 +19,36 @@ export default function MapPage() {
   useEffect(() => {
     async function loadInitialData() {
       const [{ data: r }, { data: b }, { data: c }] = await Promise.all([
-        supabase.from('blood_requests').select('*').in('status', ['open', 'partially_fulfilled']),
+        supabase
+          .from('blood_requests')
+          .select(REQUEST_SELECT)
+          .in('status', ['open', 'partially_fulfilled']),
         supabase.from('blood_banks').select('*'),
         supabase.from('donation_camps').select('*'),
       ]);
-      setRequests(r ?? []);
+      setRequests((r as BloodRequest[]) ?? []);
       setBloodBanks(b ?? []);
       setCamps(c ?? []);
     }
     loadInitialData();
 
-    // Real-time subscription: new urgent requests appear on the map instantly
+    // Real-time subscription: new urgent requests appear on the map instantly.
+    // Realtime only sends the raw inserted row (no joins), so we fetch the
+    // hospital's name separately to keep the popup consistent with the
+    // initial, joined load.
     const channel = supabase
       .channel('blood_requests_live')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'blood_requests' },
-        (payload) => {
-          setRequests((prev) => [payload.new as BloodRequest, ...prev]);
+        async (payload) => {
+          const newRequest = payload.new as BloodRequest;
+          const { data: full } = await supabase
+            .from('blood_requests')
+            .select(REQUEST_SELECT)
+            .eq('id', newRequest.id)
+            .single();
+          setRequests((prev) => [(full as BloodRequest) ?? newRequest, ...prev]);
         }
       )
       .subscribe();

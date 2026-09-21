@@ -1,7 +1,7 @@
 export type BloodGroup = 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-';
 export type UserRole = 'donor' | 'hospital' | 'admin';
 export type Urgency = 'critical' | 'high' | 'medium' | 'low';
-export type RequestStatus = 'open' | 'partially_fulfilled' | 'fulfilled' | 'expired';
+export type RequestStatus = 'open' | 'partially_fulfilled' | 'fulfilled' | 'expired' | 'cancelled';
 
 export interface Profile {
   id: string;
@@ -31,6 +31,30 @@ export interface BloodRequest {
   status: RequestStatus;
   expires_at: string | null;
   created_at: string;
+  // Populated by joining profiles on hospital_id — not a real DB column.
+  // Optional because not every query embeds it (e.g. the hospital's own
+  // "my requests" list doesn't need its own name attached).
+  hospital?: {
+    organization_name: string | null;
+    full_name: string;
+    phone: string;
+    city: string | null;
+  } | null;
+}
+
+// A pledge with the donor's identity attached — what a hospital sees
+// when reviewing who has responded to one of its requests.
+export interface DonationResponseWithDonor {
+  id: string;
+  request_id: string;
+  donor_id: string;
+  status: 'pledged' | 'confirmed' | 'completed' | 'cancelled';
+  created_at: string;
+  donor: {
+    full_name: string;
+    phone: string;
+    blood_group: BloodGroup | null;
+  } | null;
 }
 
 export interface BloodBank {
