@@ -68,11 +68,22 @@ export default function DonorDashboard() {
   async function pledge(requestId: string) {
     if (!profile) return;
     setPledgeBusyFor(requestId);
+    // upsert, not insert — donation_responses has a unique(request_id, donor_id)
+    // constraint, so a donor who pledged and later withdrew already has a row
+    // for this request (status: 'cancelled'). A plain insert would collide
+    // with it and fail; upsert flips that existing row back to 'pledged'.
     const { error } = await supabase
       .from('donation_responses')
-      .insert({ request_id: requestId, donor_id: profile.id, status: 'pledged' });
+      .upsert(
+        { request_id: requestId, donor_id: profile.id, status: 'pledged' },
+        { onConflict: 'request_id,donor_id' }
+      );
     setPledgeBusyFor(null);
-    if (!error) setPledged((prev) => new Set(prev).add(requestId));
+    if (!error) {
+      setPledged((prev) => new Set(prev).add(requestId));
+    } else {
+      alert(`Failed to pledge: ${error.message}`);
+    }
   }
 
   async function withdrawPledge(requestId: string) {
