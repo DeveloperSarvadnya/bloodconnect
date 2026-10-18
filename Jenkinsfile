@@ -197,19 +197,18 @@ pipeline {
             echo "SonarQube report: ${SONAR_HOST_URL}/dashboard?id=bloodconnect"
             withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
                 sh '''
-                    MODE_TEXT="Deployment to ${DEPLOY_ENV} (AWS)"
-                    if [ "${CI_ONLY}" = "true" ]; then
-                        MODE_TEXT="CI & Security Gate (Local)"
-                    fi
-                    TAG="${ROLLBACK_TAG:-$IMAGE_TAG}"
-                    JSON_PAYLOAD=$(cat <<EOF
-{
-  "channel": "${SLACK_CHANNEL}",
-  "text": "✅ *BloodConnect* build #${BUILD_NUMBER} *succeeded* [${MODE_TEXT}]\\nImage: \`${DOCKER_IMAGE}:${TAG}\`\\nSonarQube: ${SONAR_HOST_URL}/dashboard?id=bloodconnect\\n<${BUILD_URL}|View Build>"
-}
-EOF
-)
-                    curl -s -X POST -H 'Content-type: application/json' --data "$JSON_PAYLOAD" "$SLACK_WEBHOOK_URL" || true
+                    python3 -c "
+import os, urllib.request, json
+mode = 'CI & Security Gate (Local)' if os.environ.get('CI_ONLY') == 'true' else f'Deployment to {os.environ.get(\\"DEPLOY_ENV\\")} (AWS)'
+tag = os.environ.get('ROLLBACK_TAG') or os.environ.get('IMAGE_TAG')
+text = f'✅ *BloodConnect* build #{os.environ.get(\\"BUILD_NUMBER\\")} *succeeded* [{mode}]\\nImage: {os.environ.get(\\"DOCKER_IMAGE\\")}:{tag}\\nSonarQube: {os.environ.get(\\"SONAR_HOST_URL\\")}/dashboard?id=bloodconnect\\n<{os.environ.get(\\"BUILD_URL\\")}|View Build>'
+payload = json.dumps({'channel': os.environ.get('SLACK_CHANNEL'), 'text': text}).encode('utf-8')
+req = urllib.request.Request(os.environ.get('SLACK_WEBHOOK_URL'), data=payload, headers={'Content-Type': 'application/json', 'User-Agent': 'Jenkins'})
+try:
+    urllib.request.urlopen(req)
+except Exception as e:
+    print('Slack notification error:', e)
+" || true
                 '''
             }
         }
@@ -217,14 +216,16 @@ EOF
             echo "Pipeline failed. To roll back, re-run this job with ROLLBACK_TAG set to a previously known-good build number."
             withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
                 sh '''
-                    JSON_PAYLOAD=$(cat <<EOF
-{
-  "channel": "${SLACK_CHANNEL}",
-  "text": "❌ *BloodConnect* build #${BUILD_NUMBER} *failed*\\nEnv: \`${DEPLOY_ENV}\`\\n<${BUILD_URL}console|View Console Output>"
-}
-EOF
-)
-                    curl -s -X POST -H 'Content-type: application/json' --data "$JSON_PAYLOAD" "$SLACK_WEBHOOK_URL" || true
+                    python3 -c "
+import os, urllib.request, json
+text = f'❌ *BloodConnect* build #{os.environ.get(\\"BUILD_NUMBER\\")} *failed*\\nEnv: {os.environ.get(\\"DEPLOY_ENV\\")}\\n<{os.environ.get(\\"BUILD_URL\\")}console|View Console Output>'
+payload = json.dumps({'channel': os.environ.get('SLACK_CHANNEL'), 'text': text}).encode('utf-8')
+req = urllib.request.Request(os.environ.get('SLACK_WEBHOOK_URL'), data=payload, headers={'Content-Type': 'application/json', 'User-Agent': 'Jenkins'})
+try:
+    urllib.request.urlopen(req)
+except Exception as e:
+    print('Slack notification error:', e)
+" || true
                 '''
             }
         }
