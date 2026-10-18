@@ -5,7 +5,7 @@ pipeline {
         choice(name: 'DEPLOY_ENV', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
         string(name: 'ROLLBACK_TAG', defaultValue: '', description: 'If set, redeploy this existing image tag instead of building a new one')
         booleanParam(name: 'SKIP_ZAP', defaultValue: false, description: 'Skip the OWASP ZAP scan (useful for quick iteration)')
-        booleanParam(name: 'CI_ONLY', defaultValue: false, description: 'Run only CI/Quality check stages without provisioning AWS infrastructure')
+        booleanParam(name: 'CI_ONLY', defaultValue: true, description: 'Run only CI/Quality check stages without provisioning AWS infrastructure')
     }
 
     environment {
@@ -196,26 +196,36 @@ pipeline {
             echo "Pipeline succeeded — image tag: ${params.ROLLBACK_TAG ?: env.IMAGE_TAG}"
             echo "SonarQube report: ${SONAR_HOST_URL}/dashboard?id=bloodconnect"
             withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
-                script {
-                    def modeText = params.CI_ONLY ? "CI & Security Gate (Local)" : "Deployment to ${params.DEPLOY_ENV} (AWS)"
-                    slackSend(
-                        channel: env.SLACK_CHANNEL,
-                        color: 'good',
-                        message: "✅ *BloodConnect* build #${env.BUILD_NUMBER} *succeeded* [${modeText}]\nImage: `${env.DOCKER_IMAGE}:${params.ROLLBACK_TAG ?: env.IMAGE_TAG}`\nSonarQube: ${env.SONAR_HOST_URL}/dashboard?id=bloodconnect\n<${env.BUILD_URL}|View Build>",
-                        tokenCredentialId: 'slack-webhook'
-                    )
-                }
+                sh '''
+                    MODE_TEXT="Deployment to ${DEPLOY_ENV} (AWS)"
+                    if [ "${CI_ONLY}" = "true" ]; then
+                        MODE_TEXT="CI & Security Gate (Local)"
+                    fi
+                    TAG="${ROLLBACK_TAG:-$IMAGE_TAG}"
+                    JSON_PAYLOAD=$(cat <<EOF
+{
+  "channel": "${SLACK_CHANNEL}",
+  "text": "✅ *BloodConnect* build #${BUILD_NUMBER} *succeeded* [${MODE_TEXT}]\\nImage: \`${DOCKER_IMAGE}:${TAG}\`\\nSonarQube: ${SONAR_HOST_URL}/dashboard?id=bloodconnect\\n<${BUILD_URL}|View Build>"
+}
+EOF
+)
+                    curl -s -X POST -H 'Content-type: application/json' --data "$JSON_PAYLOAD" "$SLACK_WEBHOOK_URL" || true
+                '''
             }
         }
         failure {
             echo "Pipeline failed. To roll back, re-run this job with ROLLBACK_TAG set to a previously known-good build number."
             withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
-                slackSend(
-                    channel: env.SLACK_CHANNEL,
-                    color: 'danger',
-                    message: "❌ *BloodConnect* build #${env.BUILD_NUMBER} *failed*\nEnv: `${params.DEPLOY_ENV}`\n<${env.BUILD_URL}console|View Console Output>",
-                    tokenCredentialId: 'slack-webhook'
-                )
+                sh '''
+                    JSON_PAYLOAD=$(cat <<EOF
+{
+  "channel": "${SLACK_CHANNEL}",
+  "text": "❌ *BloodConnect* build #${BUILD_NUMBER} *failed*\\nEnv: \`${DEPLOY_ENV}\`\\n<${BUILD_URL}console|View Console Output>"
+}
+EOF
+)
+                    curl -s -X POST -H 'Content-type: application/json' --data "$JSON_PAYLOAD" "$SLACK_WEBHOOK_URL" || true
+                '''
             }
         }
         always {
