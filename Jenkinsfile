@@ -5,6 +5,7 @@ pipeline {
         choice(name: 'DEPLOY_ENV', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
         string(name: 'ROLLBACK_TAG', defaultValue: '', description: 'If set, redeploy this existing image tag instead of building a new one')
         booleanParam(name: 'SKIP_ZAP', defaultValue: false, description: 'Skip the OWASP ZAP scan (useful for quick iteration)')
+        booleanParam(name: 'CI_ONLY', defaultValue: false, description: 'Run only CI/Quality check stages without provisioning AWS infrastructure')
     }
 
     environment {
@@ -95,6 +96,7 @@ pipeline {
         }
 
         stage('Terraform Plan/Apply') {
+            when { expression { !params.CI_ONLY } }
             steps {
                 dir("terraform/environments/${params.DEPLOY_ENV}") {
                     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
@@ -110,6 +112,7 @@ pipeline {
         }
 
         stage('Ansible: Provision Host + k3s') {
+            when { expression { !params.CI_ONLY } }
             steps {
                 sh """
                     ansible-playbook -i ansible/inventories/${params.DEPLOY_ENV}/hosts.yml \
@@ -122,6 +125,7 @@ pipeline {
         }
 
         stage('Ansible: Deploy to Kubernetes') {
+            when { expression { !params.CI_ONLY } }
             steps {
                 script {
                     def deployTag = params.ROLLBACK_TAG?.trim() ? params.ROLLBACK_TAG : env.IMAGE_TAG
@@ -135,6 +139,7 @@ pipeline {
         }
 
         stage('Health Check') {
+            when { expression { !params.CI_ONLY } }
             steps {
                 script {
                     env.TARGET_HOST = sh(
@@ -154,7 +159,7 @@ pipeline {
         }
 
         stage('Security Scan (OWASP ZAP)') {
-            when { expression { !params.SKIP_ZAP } }
+            when { expression { !params.SKIP_ZAP && !params.CI_ONLY } }
             steps {
                 // Runs ZAP's baseline scan (passive, non-destructive) against the
                 // freshly deployed instance. Uses the official zaproxy Docker image
@@ -188,15 +193,18 @@ pipeline {
 
     post {
         success {
-            echo "Deployment to ${params.DEPLOY_ENV} succeeded — image tag: ${params.ROLLBACK_TAG ?: env.IMAGE_TAG}"
+            echo "Pipeline succeeded — image tag: ${params.ROLLBACK_TAG ?: env.IMAGE_TAG}"
             echo "SonarQube report: ${SONAR_HOST_URL}/dashboard?id=bloodconnect"
             withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
-                slackSend(
-                    channel: env.SLACK_CHANNEL,
-                    color: 'good',
-                    message: "✅ *BloodConnect* build #${env.BUILD_NUMBER} *succeeded*\nEnv: `${params.DEPLOY_ENV}` | Image: `${env.DOCKER_IMAGE}:${params.ROLLBACK_TAG ?: env.IMAGE_TAG}`\nSonarQube: ${env.SONAR_HOST_URL}/dashboard?id=bloodconnect\n<${env.BUILD_URL}|View Build>",
-                    tokenCredentialId: 'slack-webhook'
-                )
+                script {
+                    def modeText = params.CI_ONLY ? "CI & Security Gate (Local)" : "Deployment to ${params.DEPLOY_ENV} (AWS)"
+                    slackSend(
+                        channel: env.SLACK_CHANNEL,
+                        color: 'good',
+                        message: "✅ *BloodConnect* build #${env.BUILD_NUMBER} *succeeded* [${modeText}]\nImage: `${env.DOCKER_IMAGE}:${params.ROLLBACK_TAG ?: env.IMAGE_TAG}`\nSonarQube: ${env.SONAR_HOST_URL}/dashboard?id=bloodconnect\n<${env.BUILD_URL}|View Build>",
+                        tokenCredentialId: 'slack-webhook'
+                    )
+                }
             }
         }
         failure {
