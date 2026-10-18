@@ -17,6 +17,7 @@ pipeline {
         SUPABASE_ANON_KEY     = credentials('supabase-anon-key')
         SONAR_TOKEN           = credentials('sonar-token')
         SONAR_HOST_URL        = "http://sonarqube:9000"
+        SONAR_PUBLIC_URL      = "http://localhost:9000"
         SLACK_CHANNEL         = "#bloodconnect-builds"
     }
 
@@ -194,14 +195,14 @@ pipeline {
     post {
         success {
             echo "Pipeline succeeded — image tag: ${params.ROLLBACK_TAG ?: env.IMAGE_TAG}"
-            echo "SonarQube report: ${SONAR_HOST_URL}/dashboard?id=bloodconnect"
+            echo "SonarQube report: ${SONAR_PUBLIC_URL}/dashboard?id=bloodconnect"
             withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
                 sh '''
                     python3 -c "
 import os, urllib.request, json
 mode = 'CI & Security Gate (Local)' if os.environ.get('CI_ONLY') == 'true' else f'Deployment to {os.environ.get(\\"DEPLOY_ENV\\")} (AWS)'
 tag = os.environ.get('ROLLBACK_TAG') or os.environ.get('IMAGE_TAG')
-text = f'✅ *BloodConnect* build #{os.environ.get(\\"BUILD_NUMBER\\")} *succeeded* [{mode}]\\nImage: {os.environ.get(\\"DOCKER_IMAGE\\")}:{tag}\\nSonarQube: {os.environ.get(\\"SONAR_HOST_URL\\")}/dashboard?id=bloodconnect\\n<{os.environ.get(\\"BUILD_URL\\")}|View Build>'
+text = f'✅ *BloodConnect* build #{os.environ.get(\\"BUILD_NUMBER\\")} *succeeded* [{mode}]\\nImage: {os.environ.get(\\"DOCKER_IMAGE\\")}:{tag}\\nSonarQube: {os.environ.get(\\"SONAR_PUBLIC_URL\\")}/dashboard?id=bloodconnect\\n<{os.environ.get(\\"BUILD_URL\\")}|View Build>'
 payload = json.dumps({'channel': os.environ.get('SLACK_CHANNEL'), 'text': text}).encode('utf-8')
 req = urllib.request.Request(os.environ.get('SLACK_WEBHOOK_URL'), data=payload, headers={'Content-Type': 'application/json', 'User-Agent': 'Jenkins'})
 try:
