@@ -9,13 +9,14 @@ pipeline {
 
     environment {
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
-        DOCKER_IMAGE          = "yourdockerhubuser/bloodconnect"
+        DOCKER_IMAGE          = "2sarvadnya2/bloodconnect"
         IMAGE_TAG             = "${env.BUILD_NUMBER}"
         AWS_CREDENTIALS       = credentials('aws-creds')
         SUPABASE_URL          = credentials('supabase-url')
         SUPABASE_ANON_KEY     = credentials('supabase-anon-key')
         SONAR_TOKEN           = credentials('sonar-token')
         SONAR_HOST_URL        = "http://sonarqube:9000"
+        SLACK_CHANNEL         = "#bloodconnect-builds"
     }
 
     stages {
@@ -189,9 +190,25 @@ pipeline {
         success {
             echo "Deployment to ${params.DEPLOY_ENV} succeeded — image tag: ${params.ROLLBACK_TAG ?: env.IMAGE_TAG}"
             echo "SonarQube report: ${SONAR_HOST_URL}/dashboard?id=bloodconnect"
+            withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'good',
+                    message: "✅ *BloodConnect* build #${env.BUILD_NUMBER} *succeeded*\nEnv: `${params.DEPLOY_ENV}` | Image: `${env.DOCKER_IMAGE}:${params.ROLLBACK_TAG ?: env.IMAGE_TAG}`\nSonarQube: ${env.SONAR_HOST_URL}/dashboard?id=bloodconnect\n<${env.BUILD_URL}|View Build>",
+                    tokenCredentialId: 'slack-webhook'
+                )
+            }
         }
         failure {
             echo "Pipeline failed. To roll back, re-run this job with ROLLBACK_TAG set to a previously known-good build number."
+            withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'danger',
+                    message: "❌ *BloodConnect* build #${env.BUILD_NUMBER} *failed*\nEnv: `${params.DEPLOY_ENV}`\n<${env.BUILD_URL}console|View Console Output>",
+                    tokenCredentialId: 'slack-webhook'
+                )
+            }
         }
         always {
             sh 'docker logout || true'

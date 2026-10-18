@@ -36,7 +36,7 @@ resource "aws_security_group" "app_sg" {
   }
 
   ingress {
-    description = "Kubernetes NodePort — k3s-hosted app (see k8s/base/service.yaml)"
+    description = "Kubernetes NodePort - k3s-hosted app (see k8s/base/service.yaml)"
     from_port   = 30080
     to_port     = 30080
     protocol    = "tcp"

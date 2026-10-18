@@ -7,6 +7,9 @@ node_modules
 *.tfstate
 *.tfstate.backup
 .terraform.lock.hcl
+terraform.tfvars
+*.tfplan
+tfplan
 ansible/inventories/**/vault.yml
 ansible/group_vars/*.yml
 !ansible/group_vars/*.example
