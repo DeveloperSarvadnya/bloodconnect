@@ -10,9 +10,9 @@ variable "environment" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type — t2.micro / t3.micro is AWS Free Tier eligible"
+  description = "EC2 instance type — t3.micro is AWS Free Tier eligible"
   type        = string
-  default     = "t2.micro"
+  default     = "t3.micro"
 }
 
 variable "ami_id" {

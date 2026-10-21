@@ -19,6 +19,8 @@ pipeline {
         SONAR_HOST_URL        = "http://sonarqube:9000"
         SONAR_PUBLIC_URL      = "http://localhost:9000"
         SLACK_CHANNEL         = "#bloodconnect-builds"
+        ANSIBLE_HOST_KEY_CHECKING = "False"
+        ANSIBLE_CONFIG            = "${WORKSPACE}/ansible/ansible.cfg"
     }
 
     stages {

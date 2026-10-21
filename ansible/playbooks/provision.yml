@@ -23,6 +23,34 @@
     - name: Gather facts after connection established
       setup:
 
+    - name: Create 2GB swap file if not present
+      command: fallocate -l 2G /swapfile
+      args:
+        creates: /swapfile
+
+    - name: Set swap file permissions
+      file:
+        path: /swapfile
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Format swap file
+      command: mkswap /swapfile
+      when: ansible_swaptotal_mb == 0
+
+    - name: Turn swap on
+      command: swapon /swapfile
+      when: ansible_swaptotal_mb == 0
+
+    - name: Add swap file to fstab
+      mount:
+        name: none
+        src: /swapfile
+        fstype: swap
+        opts: sw
+        state: present
+
     - name: Update apt cache
       apt:
         update_cache: true
