@@ -103,15 +103,15 @@ pipeline {
             steps {
                 dir("terraform/environments/${params.DEPLOY_ENV}") {
                     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
-                        sh '''
+                        sh """
                             terraform init -input=false
                             terraform validate
                             terraform plan -out=tfplan -input=false
                             terraform apply -input=false tfplan
-                            APP_IP=$(terraform output -raw app_server_public_ip)
-                            echo "Provisioned App Server Elastic IP: ${APP_IP}"
-                            sed -i "s/ansible_host:.*/ansible_host: ${APP_IP}/" ../../../ansible/inventories/${params.DEPLOY_ENV}/hosts.yml
-                        '''
+                            APP_IP=\$(terraform output -raw app_server_public_ip)
+                            echo "Provisioned App Server Elastic IP: \${APP_IP}"
+                            sed -i "s/ansible_host:.*/ansible_host: \${APP_IP}/" ../../../ansible/inventories/${params.DEPLOY_ENV}/hosts.yml
+                        """
                     }
                 }
             }
