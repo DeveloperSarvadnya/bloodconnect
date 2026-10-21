@@ -11,5 +11,5 @@ replicas:
     count: 3
 
 images:
-  - name: yourdockerhubuser/bloodconnect
+  - name: 2sarvadnya2/bloodconnect
     newTag: latest

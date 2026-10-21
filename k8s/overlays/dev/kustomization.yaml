@@ -11,5 +11,5 @@ replicas:
     count: 1 # single replica in dev to keep the free-tier node's resources free
 
 images:
-  - name: yourdockerhubuser/bloodconnect
+  - name: 2sarvadnya2/bloodconnect
     newTag: latest # overridden at deploy time with the real Jenkins build tag

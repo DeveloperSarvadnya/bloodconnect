@@ -14,7 +14,7 @@
   become: true
 
   vars:
-    namespace: "bloodconnect-{{ deploy_env }}"
+    k8s_namespace: "bloodconnect-{{ deploy_env }}"
 
   tasks:
     - name: Fail early if required vars are missing
@@ -33,14 +33,14 @@
 
     - name: Ensure target namespace exists
       shell: >
-        k3s kubectl get namespace {{ namespace }} ||
-        k3s kubectl create namespace {{ namespace }}
+        k3s kubectl get namespace {{ k8s_namespace }} ||
+        k3s kubectl create namespace {{ k8s_namespace }}
       changed_when: false
 
     - name: Create/update the Supabase secret for this environment
       shell: |
         k3s kubectl create secret generic bloodconnect-secrets \
-          --namespace={{ namespace }} \
+          --namespace={{ k8s_namespace }} \
           --from-literal=NEXT_PUBLIC_SUPABASE_ANON_KEY="{{ supabase_anon_key }}" \
           --dry-run=client -o yaml | k3s kubectl apply -f -
       no_log: true # keeps the anon key out of Jenkins console output
@@ -52,12 +52,12 @@
       command: >
         k3s kubectl set image deployment/bloodconnect-app
         bloodconnect={{ docker_image }}:{{ image_tag }}
-        --namespace={{ namespace }}
+        --namespace={{ k8s_namespace }}
 
     - name: Wait for the rollout to finish
       command: >
         k3s kubectl rollout status deployment/bloodconnect-app
-        --namespace={{ namespace }} --timeout=180s
+        --namespace={{ k8s_namespace }} --timeout=180s
       register: rollout
 
     - name: Show rollout result
