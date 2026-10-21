@@ -57,7 +57,7 @@
     - name: Wait for the rollout to finish
       command: >
         k3s kubectl rollout status deployment/bloodconnect-app
-        --namespace={{ k8s_namespace }} --timeout=180s
+        --namespace={{ k8s_namespace }} --timeout=300s
       register: rollout
 
     - name: Show rollout result

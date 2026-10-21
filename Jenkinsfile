@@ -86,14 +86,14 @@ pipeline {
                 sh '''
                     echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin
 
-                    docker build \
+                    docker buildx build \
+                        --platform linux/amd64 \
                         --build-arg NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL \
                         --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
                         -t $DOCKER_IMAGE:$IMAGE_TAG \
-                        -t $DOCKER_IMAGE:latest .
-
-                    docker push $DOCKER_IMAGE:$IMAGE_TAG
-                    docker push $DOCKER_IMAGE:latest
+                        -t $DOCKER_IMAGE:latest \
+                        --push \
+                        .
                 '''
             }
         }
