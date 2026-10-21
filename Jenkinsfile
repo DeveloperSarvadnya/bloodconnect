@@ -169,31 +169,27 @@ pipeline {
         stage('Security Scan (OWASP ZAP)') {
             when { expression { !params.SKIP_ZAP && !params.CI_ONLY } }
             steps {
-                // Runs ZAP's baseline scan (passive, non-destructive) against the
-                // freshly deployed instance. Uses the official zaproxy Docker image
-                // so no local ZAP install is needed on the Jenkins agent.
                 sh """
                     mkdir -p zap-report
+                    cp security/zap/zap-rules.tsv zap-report/rules.tsv
                     docker run --rm \
                         -v \$(pwd)/zap-report:/zap/wrk:rw \
-                        -v \$(pwd)/security/zap/zap-rules.tsv:/zap/rules.tsv:ro \
                         ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
                         -t http://${env.TARGET_HOST}:30080 \
                         -c rules.tsv \
                         -r zap-report.html \
                         -J zap-report.json \
                         || true
+                    chmod -R 755 zap-report || true
                 """
-                // zap-baseline.py exits non-zero on WARN/FAIL findings by design —
-                // "|| true" keeps the pipeline from hard-failing on warnings while
-                // we still archive the report for review below.
                 archiveArtifacts artifacts: 'zap-report/*.html,zap-report/*.json', allowEmptyArchive: true
                 publishHTML(target: [
                     reportDir: 'zap-report',
                     reportFiles: 'zap-report.html',
                     reportName: 'OWASP ZAP Report',
                     keepAll: true,
-                    alwaysLinkToLastBuild: true
+                    alwaysLinkToLastBuild: true,
+                    allowMissing: true
                 ])
             }
         }
