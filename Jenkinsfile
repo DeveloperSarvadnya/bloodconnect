@@ -106,6 +106,9 @@ pipeline {
                             terraform validate
                             terraform plan -out=tfplan -input=false
                             terraform apply -input=false tfplan
+                            APP_IP=$(terraform output -raw app_server_public_ip)
+                            echo "Provisioned App Server Elastic IP: ${APP_IP}"
+                            sed -i "s/ansible_host:.*/ansible_host: ${APP_IP}/" ../../../ansible/inventories/${params.DEPLOY_ENV}/hosts.yml
                         '''
                     }
                 }
@@ -133,7 +136,7 @@ pipeline {
                     sh """
                         ansible-playbook -i ansible/inventories/${params.DEPLOY_ENV}/hosts.yml \
                             ansible/playbooks/k8s_deploy.yml \
-                            --extra-vars "image_tag=${deployTag} docker_image=${env.DOCKER_IMAGE} deploy_env=${params.DEPLOY_ENV}"
+                            --extra-vars "image_tag=${deployTag} docker_image=${env.DOCKER_IMAGE} deploy_env=${params.DEPLOY_ENV} supabase_anon_key=${SUPABASE_ANON_KEY}"
                     """
                 }
             }
@@ -144,14 +147,16 @@ pipeline {
             steps {
                 script {
                     env.TARGET_HOST = sh(
-                        script: "ansible-inventory -i ansible/inventories/${params.DEPLOY_ENV}/hosts.yml --list | python3 -c \"import json,sys; d=json.load(sys.stdin); print(d['app_servers']['hosts'][0])\"",
+                        script: "ansible-inventory -i ansible/inventories/${params.DEPLOY_ENV}/hosts.yml --list | python3 -c \"import json,sys; d=json.load(sys.stdin); host=d['app_servers']['hosts'][0]; print(d['_meta']['hostvars'][host].get('ansible_host', host))\"",
                         returnStdout: true
                     ).trim()
+
+                    echo "Target Host IP: ${env.TARGET_HOST}"
 
                     // k8s_deploy.yml already waits for a healthy rollout on the host
                     // itself; this is the same check from Jenkins' perspective, over
                     // the NodePort the Service exposes (k8s/base/service.yaml).
-                    retry(5) {
+                    retry(8) {
                         sleep(time: 10, unit: 'SECONDS')
                         sh "curl -f http://${env.TARGET_HOST}:30080/api/health"
                     }
@@ -202,7 +207,9 @@ pipeline {
 import os, urllib.request, json
 mode = 'CI & Security Gate (Local)' if os.environ.get('CI_ONLY') == 'true' else f'Deployment to {os.environ.get(\\"DEPLOY_ENV\\")} (AWS)'
 tag = os.environ.get('ROLLBACK_TAG') or os.environ.get('IMAGE_TAG')
-text = f'✅ *BloodConnect* build #{os.environ.get(\\"BUILD_NUMBER\\")} *succeeded* [{mode}]\\nImage: {os.environ.get(\\"DOCKER_IMAGE\\")}:{tag}\\nSonarQube: {os.environ.get(\\"SONAR_PUBLIC_URL\\")}/dashboard?id=bloodconnect\\n<{os.environ.get(\\"BUILD_URL\\")}|View Build>'
+target_host = os.environ.get('TARGET_HOST')
+app_url = f'\\nLive App: http://{target_host}:30080' if target_host else ''
+text = f'✅ *BloodConnect* build #{os.environ.get(\\"BUILD_NUMBER\\")} *succeeded* [{mode}]\\nImage: {os.environ.get(\\"DOCKER_IMAGE\\")}:{tag}{app_url}\\nSonarQube: {os.environ.get(\\"SONAR_PUBLIC_URL\\")}/dashboard?id=bloodconnect\\n<{os.environ.get(\\"BUILD_URL\\")}|View Build>'
 payload = json.dumps({'channel': os.environ.get('SLACK_CHANNEL'), 'text': text}).encode('utf-8')
 req = urllib.request.Request(os.environ.get('SLACK_WEBHOOK_URL'), data=payload, headers={'Content-Type': 'application/json', 'User-Agent': 'Jenkins'})
 try:
